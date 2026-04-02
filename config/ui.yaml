@@ -1,0 +1,9 @@
+ui:
+  screenshot_interval_ms: 500
+  carousel_max_items: 50
+  websocket_ping_interval: 30
+  theme: "dark"
+  host: "0.0.0.0"
+  port: 8000
+  reconnect_history_lines: 100
+  reconnect_carousel_items: 10

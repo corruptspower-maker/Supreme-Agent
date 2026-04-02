@@ -1,0 +1,19 @@
+mcp:
+  server:
+    host: "localhost"
+    port: 8765
+    auth_enabled: true
+    rate_limit_per_client_per_minute: 60
+  tools:
+    memory_server:
+      enabled: true
+      module: "mcp_tools.memory_server"
+    state_server:
+      enabled: true
+      module: "mcp_tools.state_server"
+    screenshot_server:
+      enabled: true
+      module: "mcp_tools.screenshot_server"
+    lmstudio_server:
+      enabled: true
+      module: "mcp_tools.lmstudio_server"

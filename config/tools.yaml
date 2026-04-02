@@ -1,0 +1,26 @@
+tools:
+  file_tool:
+    enabled: true
+    risk_level: safe
+  web_search_tool:
+    enabled: true
+    risk_level: safe
+  email_tool:
+    enabled: true
+    risk_level: dangerous
+  python_tool:
+    enabled: true
+    risk_level: moderate
+    sandbox:
+      allowed_imports: [json, re, datetime, math, "os.path", pathlib, csv]
+      max_execution_seconds: 30
+      max_memory_mb: 256
+  shell_tool:
+    enabled: true
+    risk_level: dangerous
+    sandbox:
+      allowed_commands: [dir, type, findstr, echo, date, whoami, ping]
+      timeout_seconds: 10
+  rag_tool:
+    enabled: true
+    risk_level: safe

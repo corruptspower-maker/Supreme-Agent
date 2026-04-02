@@ -1,0 +1,28 @@
+local:
+  primary:
+    name: "huihui-qwen3.5-9b-abliterated-ties-i1"
+    provider: "lmstudio"
+    endpoint: "http://localhost:1234/v1"
+    context_window: 32768
+    timeout_seconds: 120
+    token_budget:
+      system_prompt: 8000
+      memory_context: 8000
+      conversation: 16000
+escalation:
+  tier1:
+    provider: copilot_api
+    base_url: "https://api.githubcopilot.com"
+    model: gpt-4o
+    auth: github_oauth_device_flow
+    timeout_seconds: 30
+  tier2:
+    provider: claude_code_cli
+    command: claude
+    flags: ["--print", "--output-format", "json", "--max-turns", "10"]
+    timeout_seconds: 300
+  tier3:
+    provider: claude_code_cli
+    command: claude
+    task: open_vscode_cline
+    timeout_seconds: 600

@@ -1,0 +1,34 @@
+safety:
+  require_confirmation:
+    - email_send
+    - file_delete
+    - shell_execute
+    - browser_navigate_new_domain
+  rate_limits:
+    email_send:
+      max: 5
+      period_hours: 1
+    file_delete:
+      max: 3
+      period_hours: 1
+    shell_execute:
+      max: 10
+      period_hours: 1
+    escalation:
+      max: 30
+      period_hours: 24
+  forbidden_actions:
+    - system_file_modification
+    - registry_edit
+    - credential_storage_access
+    - full_disk_delete
+    - kernel_modification
+  sandbox:
+    python:
+      allowed_imports: [json, re, datetime, math, "os.path", pathlib, csv]
+      max_execution_seconds: 30
+    shell:
+      allowed_commands: [dir, type, findstr, echo, date, whoami, ping]
+      timeout_seconds: 10
+  audit_db_path: "data/audit.db"
+  safety_mode_default: "full"

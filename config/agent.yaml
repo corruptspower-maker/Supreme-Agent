@@ -1,0 +1,13 @@
+agent:
+  name: "Executive Agent"
+  version: "0.1.0"
+  max_concurrent_tasks: 3
+  checkpoint_interval_seconds: 30
+  heartbeat_interval_seconds: 10
+  enable_self_improvement: false
+  self_improvement_min_runtime_hours: 24
+  self_improvement_min_tasks: 50
+  task_queue_warn_size: 10
+  ports:
+    mcp_server: 8765
+    web_ui: 8000
