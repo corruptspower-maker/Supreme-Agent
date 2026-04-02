@@ -1,0 +1,23 @@
+escalation:
+  triggers:
+    max_retries_before_escalate: 3
+    min_confidence_threshold: 0.4
+    max_step_timeout_seconds: 300
+    code_lines_threshold: 30
+  routing:
+    code_generation: tier1
+    debugging: tier1
+    architecture: tier2
+    multi_file_refactor: tier2
+    long_agentic_session: tier3
+    reasoning_depth: tier2
+    context_overflow: tier2
+  fallback_chain:
+    - tier1
+    - tier2
+    - tier3
+  circuit_breaker:
+    failure_threshold: 3
+    recovery_timeout_seconds: 300
+  rate_limits:
+    mcp_calls_per_minute_per_client: 60

@@ -1,0 +1,22 @@
+memory:
+  conversation:
+    max_messages: 50
+  episodic:
+    ttl_days: 90
+    db_path: "data/episodic.db"
+  semantic:
+    enabled: true
+    ttl_days: 180
+    collection: "semantic_memory"
+    search_timeout_seconds: 2.0
+  procedural:
+    db_path: "data/procedural.db"
+    yaml_path: "data/workflows.yaml"
+  user_profile:
+    path: "data/user_profile.json"
+  compaction:
+    interval_minutes: 60
+    max_duration_seconds: 120
+  semantic_memory_enabled: true
+  semantic_search_timeout_seconds: 2.0
+  compaction_max_duration_seconds: 120
