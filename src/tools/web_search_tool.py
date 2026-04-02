@@ -37,10 +37,10 @@ class WebSearchTool(BaseTool):
         start = time.monotonic()
         query = kwargs.get("query", "").strip()
         dry_run = kwargs.get("dry_run", False)
-        
+
         if dry_run:
             return self._timed_result(start, True, output=f"[dry-run] Would search for: {query}")
-        
+
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(
@@ -49,21 +49,21 @@ class WebSearchTool(BaseTool):
                 )
                 response.raise_for_status()
                 data = response.json()
-                
+
                 results = []
                 abstract = data.get("AbstractText", "")
                 if abstract:
                     results.append(f"Summary: {abstract}")
-                
+
                 related = data.get("RelatedTopics", [])[:5]
                 for item in related:
                     if isinstance(item, dict) and "Text" in item:
                         results.append(item["Text"])
-                
+
                 output = "\n".join(results) if results else f"No results found for: {query}"
                 logger.info(f"Web search: '{query}' → {len(results)} results")
                 return self._timed_result(start, True, output=output)
-        
+
         except httpx.TimeoutException:
             return self._timed_result(start, False, error="Web search timed out")
         except httpx.HTTPError as e:

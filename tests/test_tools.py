@@ -2,20 +2,18 @@
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
-
 
 # ─── BaseTool ────────────────────────────────────────────────────────────────
 
 class TestBaseTool:
     def _make_tool(self):
-        from src.tools.base import BaseTool
+
         from src.core.models import RiskLevel, ToolResult
-        import time
+        from src.tools.base import BaseTool
 
         class DummyTool(BaseTool):
             name = "dummy_tool"
@@ -59,8 +57,8 @@ class TestBaseTool:
 
 class TestToolRegistry:
     def test_register_and_get(self):
-        from src.tools.registry import ToolRegistry
         from src.tools.file_tool import FileTool
+        from src.tools.registry import ToolRegistry
 
         reg = ToolRegistry()
         tool = FileTool()
@@ -68,9 +66,9 @@ class TestToolRegistry:
         assert reg.get("file_tool") is tool
 
     def test_register_no_name_raises(self):
-        from src.tools.registry import ToolRegistry
-        from src.tools.base import BaseTool
         from src.core.models import ToolResult
+        from src.tools.base import BaseTool
+        from src.tools.registry import ToolRegistry
 
         class NoNameTool(BaseTool):
             name = ""
@@ -86,8 +84,8 @@ class TestToolRegistry:
             reg.register(NoNameTool())
 
     def test_contains_and_len(self):
-        from src.tools.registry import ToolRegistry
         from src.tools.file_tool import FileTool
+        from src.tools.registry import ToolRegistry
 
         reg = ToolRegistry()
         reg.register(FileTool())
@@ -95,8 +93,8 @@ class TestToolRegistry:
         assert len(reg) == 1
 
     def test_record_result_stats(self):
-        from src.tools.registry import ToolRegistry
         from src.tools.file_tool import FileTool
+        from src.tools.registry import ToolRegistry
 
         reg = ToolRegistry()
         reg.register(FileTool())
@@ -120,8 +118,8 @@ class TestToolRegistry:
         assert "file_tool" in reg
 
     def test_list_tools(self):
-        from src.tools.registry import ToolRegistry
         from src.tools.file_tool import FileTool
+        from src.tools.registry import ToolRegistry
         reg = ToolRegistry()
         reg.register(FileTool())
         tools = reg.list_tools()
@@ -143,10 +141,10 @@ class TestFileTool:
         from src.tools.file_tool import FileTool
         tool = FileTool()
         filepath = str(tmp_path / "test.txt")
-        
+
         write_result = await tool.execute(action="write", path=filepath, content="hello world")
         assert write_result.success is True
-        
+
         read_result = await tool.execute(action="read", path=filepath)
         assert read_result.success is True
         assert read_result.output == "hello world"
@@ -156,7 +154,7 @@ class TestFileTool:
         tool = FileTool()
         (tmp_path / "a.txt").write_text("a")
         (tmp_path / "b.txt").write_text("b")
-        
+
         result = await tool.execute(action="list", path=str(tmp_path))
         assert result.success is True
         assert "a.txt" in result.output
@@ -167,7 +165,7 @@ class TestFileTool:
         tool = FileTool()
         (tmp_path / "found.txt").write_text("data")
         (tmp_path / "other.py").write_text("code")
-        
+
         result = await tool.execute(action="search", path=str(tmp_path), pattern="*.txt")
         assert result.success is True
         assert "found.txt" in result.output
@@ -177,7 +175,7 @@ class TestFileTool:
         tool = FileTool()
         f = tmp_path / "del.txt"
         f.write_text("bye")
-        
+
         result = await tool.execute(action="delete", path=str(f))
         assert result.success is True
         assert not f.exists()
@@ -192,7 +190,7 @@ class TestFileTool:
         from src.tools.file_tool import FileTool
         tool = FileTool()
         filepath = str(tmp_path / "dry.txt")
-        
+
         result = await tool.execute(action="write", path=filepath, content="test", dry_run=True)
         assert result.success is True
         assert "dry-run" in result.output
@@ -391,7 +389,7 @@ class TestRAGTool:
         from src.tools.rag_tool import RAGTool
         mock_memory = AsyncMock()
         mock_memory.search = AsyncMock(return_value="Found: insurance document")
-        
+
         tool = RAGTool(memory_manager=mock_memory)
         result = await tool.execute(query="insurance")
         assert result.success is True

@@ -47,17 +47,17 @@ class FileTool(BaseTool):
         action = kwargs.get("action", "read")
         path_str = kwargs.get("path", "")
         dry_run = kwargs.get("dry_run", False)
-        
+
         try:
             path = Path(path_str)
-            
+
             if action == "read":
                 if not path.exists():
                     return self._timed_result(start, False, error=f"File not found: {path}")
                 content = path.read_text(encoding="utf-8", errors="replace")
                 logger.info(f"Read file: {path} ({len(content)} chars)")
                 return self._timed_result(start, True, output=content)
-            
+
             elif action == "write":
                 if dry_run:
                     return self._timed_result(start, True, output=f"[dry-run] Would write to {path}")
@@ -65,7 +65,7 @@ class FileTool(BaseTool):
                 path.write_text(kwargs.get("content", ""), encoding="utf-8")
                 logger.info(f"Wrote file: {path}")
                 return self._timed_result(start, True, output=f"Written: {path}", side_effects=[f"file_written:{path}"])
-            
+
             elif action == "list":
                 if not path.exists():
                     return self._timed_result(start, False, error=f"Path not found: {path}")
@@ -76,7 +76,7 @@ class FileTool(BaseTool):
                     f"{'[DIR] ' if e.is_dir() else ''}{e.name}" for e in entries
                 )
                 return self._timed_result(start, True, output=listing or "(empty)")
-            
+
             elif action == "search":
                 pattern = kwargs.get("pattern", "")
                 if not pattern:
@@ -85,7 +85,7 @@ class FileTool(BaseTool):
                 output = "\n".join(str(p) for p in results[:50])
                 logger.info(f"Search '{pattern}' in {path}: {len(results)} results")
                 return self._timed_result(start, True, output=output or "No matches found")
-            
+
             elif action == "delete":
                 if dry_run:
                     return self._timed_result(start, True, output=f"[dry-run] Would delete {path}")
@@ -94,9 +94,9 @@ class FileTool(BaseTool):
                 path.unlink()
                 logger.warning(f"Deleted file: {path}")
                 return self._timed_result(start, True, output=f"Deleted: {path}", side_effects=[f"file_deleted:{path}"])
-            
+
             return self._timed_result(start, False, error=f"Unknown action: {action}")
-        
+
         except PermissionError as e:
             return self._timed_result(start, False, error=f"Permission denied: {e}")
         except OSError as e:

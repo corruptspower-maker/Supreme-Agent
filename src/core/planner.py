@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from loguru import logger
 from src.core.models import Plan, PlanStep, StepStatus
 
 
@@ -13,23 +12,23 @@ class Planner:
         """Validate a plan for correctness."""
         if not plan.steps:
             return False, "Plan has no steps"
-        
+
         step_ids = {s.id for s in plan.steps}
         for step in plan.steps:
             for dep in step.depends_on:
                 if dep not in step_ids:
                     return False, f"Step {step.id} depends on unknown step {dep}"
-        
+
         if plan.confidence < 0.0 or plan.confidence > 1.0:
             return False, f"Invalid confidence: {plan.confidence}"
-        
+
         return True, "OK"
 
     def get_ready_steps(self, plan: Plan) -> list[PlanStep]:
         """Return steps whose dependencies are all satisfied."""
         completed = {s.id for s in plan.steps if s.status == StepStatus.SUCCEEDED}
         failed = {s.id for s in plan.steps if s.status == StepStatus.FAILED}
-        
+
         ready = []
         for step in plan.steps:
             if step.status != StepStatus.PENDING:

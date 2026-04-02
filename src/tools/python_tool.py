@@ -47,7 +47,7 @@ class PythonTool(BaseTool):
             tree = ast.parse(code)
         except SyntaxError as e:
             return False, f"Syntax error: {e}"
-        
+
         allowed = self._get_allowed_imports()
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
@@ -72,15 +72,15 @@ class PythonTool(BaseTool):
         start = time.monotonic()
         code = kwargs.get("code", "").strip()
         dry_run = kwargs.get("dry_run", False)
-        
+
         if dry_run:
             return self._timed_result(start, True, output=f"[dry-run] Would execute Python code ({len(code)} chars)")
-        
+
         try:
             stdout_buf = StringIO()
             old_stdout = sys.stdout
             sys.stdout = stdout_buf
-            
+
             local_vars: dict = {}
             # Restrict builtins to a safe subset to prevent bypassing import sandbox
             safe_builtins = {
@@ -120,7 +120,7 @@ class PythonTool(BaseTool):
                 output = stdout_buf.getvalue()
                 if not output and local_vars:
                     output = str({k: v for k, v in local_vars.items() if not k.startswith("_")})
-                logger.info(f"Python code executed successfully")
+                logger.info("Python code executed successfully")
                 return self._timed_result(start, True, output=output or "(no output)")
             except Exception as e:
                 return self._timed_result(start, False, error=f"Runtime error: {type(e).__name__}: {e}")

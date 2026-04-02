@@ -6,8 +6,6 @@ import time
 from abc import ABC, abstractmethod
 from typing import Any
 
-from loguru import logger
-
 from src.core.models import RiskLevel, ToolResult
 
 

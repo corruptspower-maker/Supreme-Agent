@@ -61,10 +61,10 @@ class ShellTool(BaseTool):
         start = time.monotonic()
         command = kwargs.get("command", "").strip()
         dry_run = kwargs.get("dry_run", False)
-        
+
         if dry_run:
             return self._timed_result(start, True, output=f"[dry-run] Would execute: {command}")
-        
+
         try:
             timeout = self._get_timeout()
             args = shlex.split(command)

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
 from loguru import logger
 
 
@@ -19,16 +18,16 @@ async def handle_execute_tool(agent, tool_name: str, args: dict) -> dict:
     """Execute a tool on behalf of an MCP client."""
     if agent is None:
         return {"success": False, "error": "Agent not available"}
-    
+
     try:
         from src.core.models import PlanStep
         step = PlanStep(description=f"MCP call: {tool_name}", tool_name=tool_name, tool_args=args)
-        
+
         if hasattr(agent, "_executor") and agent._executor:
             result = await agent._executor._router.route(step)
         else:
             return {"success": False, "error": "Executor not initialized"}
-        
+
         return {"success": result.success, "output": result.output, "error": result.error}
     except Exception as e:
         logger.error(f"MCP tool execution error: {e}")

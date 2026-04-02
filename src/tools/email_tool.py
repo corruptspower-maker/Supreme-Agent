@@ -46,34 +46,34 @@ class EmailTool(BaseTool):
         subject = kwargs.get("subject", "").strip()
         body = kwargs.get("body", "").strip()
         dry_run = kwargs.get("dry_run", False)
-        
+
         if dry_run:
             preview = f"[dry-run] Would send email:\n  To: {to}\n  Subject: {subject}\n  Body: {body[:100]}..."
             return self._timed_result(start, True, output=preview)
-        
+
         smtp_host = os.getenv("SMTP_HOST", "")
         smtp_port = int(os.getenv("SMTP_PORT", "587"))
         smtp_user = os.getenv("SMTP_USER", "")
         smtp_pass = os.getenv("SMTP_PASS", "")
-        
+
         if not smtp_host:
             return self._timed_result(
                 start, False,
                 error="SMTP not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS in .env"
             )
-        
+
         try:
             msg = EmailMessage()
             msg["To"] = to
             msg["From"] = smtp_user
             msg["Subject"] = subject
             msg.set_content(body)
-            
+
             with smtplib.SMTP(smtp_host, smtp_port) as server:
                 server.starttls()
                 server.login(smtp_user, smtp_pass)
                 server.send_message(msg)
-            
+
             logger.warning(f"Email sent to {to}: {subject}")
             return self._timed_result(
                 start, True,
