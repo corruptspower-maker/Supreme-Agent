@@ -7,12 +7,12 @@ from enum import Enum
 from typing import Optional
 from uuid import uuid4
 
+from pydantic import BaseModel, Field
+
 
 def _utcnow() -> datetime:
     """Return the current UTC time as a timezone-aware datetime."""
     return datetime.now(tz=timezone.utc)
-
-from pydantic import BaseModel, Field
 
 
 class TaskStatus(str, Enum):

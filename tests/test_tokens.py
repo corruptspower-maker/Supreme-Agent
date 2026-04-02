@@ -56,7 +56,7 @@ class TestFitsInBudget:
         assert isinstance(result, bool)
 
 
-class TestTruncateTobudget:
+class TestTruncateToBudget:
     def test_short_text_unchanged(self):
         text = "hello"
         result = truncate_to_budget(text, 100)
