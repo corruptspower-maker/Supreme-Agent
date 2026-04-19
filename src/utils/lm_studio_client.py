@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from typing import Optional
 
 import httpx
@@ -20,8 +21,13 @@ class LMStudioClient:
         self.timeout = timeout
         self._client: Optional[httpx.AsyncClient] = None
 
+    def _auth_headers(self) -> dict:
+        """Return Authorization header if LM_STUDIO_API_KEY is set."""
+        key = os.environ.get("LM_STUDIO_API_KEY", "")
+        return {"Authorization": f"Bearer {key}"} if key else {}
+
     async def __aenter__(self) -> "LMStudioClient":
-        self._client = httpx.AsyncClient(timeout=self.timeout)
+        self._client = httpx.AsyncClient(timeout=self.timeout, headers=self._auth_headers())
         return self
 
     async def __aexit__(self, *args) -> None:
@@ -31,7 +37,7 @@ class LMStudioClient:
     async def health_check(self) -> bool:
         """Check if LM Studio is running and accessible."""
         try:
-            async with httpx.AsyncClient(timeout=5.0) as c:
+            async with httpx.AsyncClient(timeout=5.0, headers=self._auth_headers()) as c:
                 r = await c.get(f"{self.endpoint}/models")
                 return r.status_code == 200
         except Exception:
