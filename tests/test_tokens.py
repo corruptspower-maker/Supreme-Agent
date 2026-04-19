@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from src.utils.tokens import estimate_tokens, fits_in_budget, truncate_to_budget
 
 

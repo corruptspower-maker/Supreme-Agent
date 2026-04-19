@@ -52,7 +52,7 @@ class ToolRegistry:
         """Auto-discover and register tools from the tools directory."""
         if tools_dir is None:
             tools_dir = Path(__file__).parent
-        
+
         count = 0
         for py_file in tools_dir.glob("*_tool.py"):
             module_name = f"src.tools.{py_file.stem}"
@@ -71,7 +71,7 @@ class ToolRegistry:
                             logger.warning(f"Failed to register {cls.__name__}: {e}")
             except ImportError as e:
                 logger.warning(f"Failed to import {module_name}: {e}")
-        
+
         logger.info(f"Auto-discovered {count} tools from {tools_dir}")
         return count
 

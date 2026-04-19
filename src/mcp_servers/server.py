@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Optional
 
 from loguru import logger
 
 from src.mcp_servers.auth import generate_token, validate_token
 from src.mcp_servers.handlers import (
-    handle_list_tools,
     handle_execute_tool,
     handle_get_status,
+    handle_list_tools,
     handle_submit_task,
 )
 
@@ -45,7 +44,7 @@ class MCPServer:
         """Handle a single MCP client connection."""
         token = generate_token(f"client-{id(websocket)}")
         logger.info(f"MCP client connected from {websocket.remote_address}")
-        
+
         try:
             async for message in websocket:
                 await self._process_message(websocket, token, message)
@@ -61,13 +60,13 @@ class MCPServer:
             response = {"error": error}
             asyncio.create_task(websocket.send(json.dumps(response)))
             return
-        
+
         try:
             msg = json.loads(raw)
             method = msg.get("method", "")
             params = msg.get("params", {})
             msg_id = msg.get("id")
-            
+
             result = await self._dispatch(method, params)
             response = {"id": msg_id, "result": result}
         except json.JSONDecodeError:
@@ -75,7 +74,7 @@ class MCPServer:
         except Exception as e:
             logger.error(f"MCP message error: {e}")
             response = {"error": str(e)}
-        
+
         asyncio.create_task(websocket.send(json.dumps(response)))
 
     async def _dispatch(self, method: str, params: dict) -> dict:

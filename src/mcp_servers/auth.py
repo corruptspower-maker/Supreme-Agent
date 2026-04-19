@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import os
 import secrets
 import time
-from typing import Optional
 
 _TOKENS: dict[str, dict] = {}  # token -> {client_id, created_at, call_count}
 _RATE_LIMIT_PER_MIN = 60
@@ -22,18 +20,18 @@ def validate_token(token: str) -> tuple[bool, str]:
     """Validate token and check rate limit. Returns (valid, error_message)."""
     if token not in _TOKENS:
         return False, "Invalid token"
-    
+
     entry = _TOKENS[token]
     now = time.time()
-    
+
     # Reset window if > 60s elapsed
     if now - entry["window_start"] >= 60:
         entry["call_count"] = 0
         entry["window_start"] = now
-    
+
     if entry["call_count"] >= _RATE_LIMIT_PER_MIN:
         return False, "Rate limit exceeded: max 60 calls/minute"
-    
+
     entry["call_count"] += 1
     return True, ""
 

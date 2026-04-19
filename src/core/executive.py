@@ -5,20 +5,20 @@ from __future__ import annotations
 import asyncio
 import json
 import socket
-import time
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 from loguru import logger
 
 from src.core.models import (
-    Task, TaskStatus, UserRequest, SafetyMode,
+    SafetyMode,
+    Task,
+    TaskStatus,
+    UserRequest,
 )
-from src.utils.config import load_config, get_full_config
+from src.utils.config import get_full_config
 from src.utils.logging import setup_logging
-
 
 CHECKPOINT_PATH = Path("data/checkpoint.json")
 
@@ -48,14 +48,14 @@ class ExecutiveAgent:
         self._safety_mode: SafetyMode = SafetyMode.FULL
         self._running: bool = False
         self._paused: bool = False
-        
+
         self.reasoner = None
         self.planner = None
         self.executor = None
         self.memory = None
         self.safety = None
         self.escalation = None
-        
+
         self._reasoning_buffer: deque[str] = deque(maxlen=100)
 
     def check_ports(self) -> None:
@@ -69,27 +69,85 @@ class ExecutiveAgent:
         """Start the agent and all subsystems."""
         setup_logging()
         self.check_ports()
-        
+
         self._running = True
         logger.info("Executive Agent starting...")
-        
+
         await self._load_checkpoint()
         await self._init_subsystems()
-        
+
         asyncio.create_task(self._heartbeat_loop())
         asyncio.create_task(self._checkpoint_loop())
-        
+
         logger.info("Executive Agent ready.")
 
     async def _init_subsystems(self) -> None:
-        """Initialize all subsystems."""
-        logger.info("Subsystems initialized")
+        """Initialize and wire all subsystems."""
+        from src.core.executor import Executor
+        from src.core.planner import Planner
+        from src.core.reasoner import Reasoner
+        from src.core.tool_router import ToolRouter
+        from src.escalation.manager import EscalationManager
+        from src.mcp_servers.server import MCPServer
+        from src.memory.manager import MemoryManager
+        from src.safety.manager import SafetyManager
+        from src.tools.registry import ToolRegistry
+        from src.utils.lm_studio_client import LMStudioClient
+
+        # Memory
+        self.memory = MemoryManager()
+        await self.memory.start()
+        asyncio.create_task(self.memory.compaction_loop())
+
+        # Safety
+        self.safety = SafetyManager()
+        await self.safety.start()
+
+        # Tools
+        registry = ToolRegistry()
+        registry.autodiscover()
+        self._registry = registry
+
+        # LM Studio client (shared; must be closed on shutdown)
+        self._lm_client = LMStudioClient()
+        await self._lm_client.__aenter__()
+
+        # Core pipeline
+        self.planner = Planner()
+        self.reasoner = Reasoner(self._lm_client)
+
+        # Escalation
+        self.escalation = EscalationManager()
+
+        router = ToolRouter(registry)
+        self.executor = Executor(
+            router=router,
+            escalation_manager=self.escalation,
+            safety_manager=self.safety,
+        )
+
+        # MCP server
+        cfg = get_full_config()
+        mcp_cfg = cfg.get("mcp", {}).get("server", {})
+        mcp_host = mcp_cfg.get("host", "localhost")
+        mcp_port = mcp_cfg.get("port", self._mcp_port)
+        self._mcp_server = MCPServer(host=mcp_host, port=mcp_port, agent=self)
+        await self._mcp_server.start()
+
+        # Web UI
+        ui_cfg = cfg.get("ui", {})
+        ui_host = ui_cfg.get("host", "localhost")
+        ui_port = ui_cfg.get("port", self._ui_port)
+        from src.interface.web import start_web_ui
+        asyncio.create_task(start_web_ui(self, host=ui_host, port=ui_port))
+
+        logger.info("All subsystems initialized")
 
     async def submit_request(self, text: str, source: str = "cli") -> Task:
         """Submit a user request for processing."""
         request = UserRequest(text=text, source=source)
         task = Task(request=request)
-        
+
         if len(self._active_tasks) >= self._max_concurrent:
             self._task_queue.append(request)
             queue_size = len(self._task_queue)
@@ -101,25 +159,25 @@ class ExecutiveAgent:
                 logger.warning(warn)
                 self._reasoning_buffer.append(warn)
             return task
-        
+
         self._active_tasks[task.id] = task
         asyncio.create_task(self._process_task(task))
         return task
 
     async def _process_task(self, task: Task) -> None:
         """Process a single task through plan → execute → memory → report."""
-        task.started_at = datetime.utcnow()
+        task.started_at = datetime.now(tz=timezone.utc)
         task.status = TaskStatus.PLANNING
         self._reasoning_buffer.append(f"Planning: {task.request.text}")
-        
+
         try:
             memory_context = ""
             if self.memory:
                 memory_context = await self.memory.search(task.request.text)
-            
+
             if self.reasoner:
                 task.plan = await self.reasoner.plan(task.request, memory_context=memory_context)
-            
+
             if self.safety and task.plan:
                 approved, reason = await self.safety.check_plan(task.plan, self._safety_mode)
                 if not approved:
@@ -127,15 +185,15 @@ class ExecutiveAgent:
                     task.error = f"Safety check failed: {reason}"
                     self._reasoning_buffer.append(f"Safety blocked: {reason}")
                     return
-            
+
             if self.executor and task.plan:
                 task = await self.executor.execute_plan(task)
             else:
                 task.status = TaskStatus.COMPLETED
-            
+
             if self.memory:
                 await self.memory.store_task_result(task)
-            
+
         except Exception as e:
             logger.error(f"Task {task.id} failed: {e}")
             task.status = TaskStatus.FAILED
@@ -195,7 +253,7 @@ class ExecutiveAgent:
                 "safety_mode": self._safety_mode.value,
                 "circuit_breaker_states": {},
                 "memory_session": list(self._reasoning_buffer),
-                "saved_at": datetime.utcnow().isoformat(),
+                "saved_at": datetime.now(tz=timezone.utc).isoformat(),
             }
             CHECKPOINT_PATH.write_text(json.dumps(data, indent=2))
             logger.debug("Checkpoint saved")
@@ -218,17 +276,27 @@ class ExecutiveAgent:
         """Graceful shutdown."""
         self._running = False
         logger.info("Shutting down — waiting for active tasks (30s max)...")
-        
+
         for _ in range(30):
             if not self._active_tasks:
                 break
             await asyncio.sleep(1)
-        
+
         await self._save_checkpoint()
+
+        if hasattr(self, "_mcp_server") and self._mcp_server:
+            await self._mcp_server.stop()
+
+        if hasattr(self, "_lm_client") and self._lm_client:
+            await self._lm_client.__aexit__(None, None, None)
+
         logger.info("Agent shutdown complete")
 
     def get_status(self) -> dict:
         """Return current agent status."""
+        cb_states = {}
+        if self.escalation:
+            cb_states = self.escalation.get_circuit_breaker_states()
         return {
             "running": self._running,
             "paused": self._paused,
@@ -236,4 +304,5 @@ class ExecutiveAgent:
             "active_tasks": len(self._active_tasks),
             "queued_tasks": len(self._task_queue),
             "reasoning_buffer": list(self._reasoning_buffer),
+            "circuit_breaker_states": cb_states,
         }

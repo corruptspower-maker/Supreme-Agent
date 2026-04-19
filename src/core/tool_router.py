@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from loguru import logger
+
 from src.core.models import PlanStep, ToolResult
 
 
@@ -20,7 +21,7 @@ class ToolRouter:
                 success=False,
                 error="Step has no tool_name",
             )
-        
+
         tool = self._registry.get(step.tool_name)
         if tool is None:
             logger.error(f"Tool not found: {step.tool_name}")
@@ -29,7 +30,7 @@ class ToolRouter:
                 success=False,
                 error=f"Tool '{step.tool_name}' not registered",
             )
-        
+
         valid, msg = await tool.validate_args(**step.tool_args)
         if not valid:
             return ToolResult(
@@ -37,6 +38,6 @@ class ToolRouter:
                 success=False,
                 error=f"Invalid args: {msg}",
             )
-        
+
         logger.info(f"Routing to tool: {step.tool_name}")
         return await tool.execute(**step.tool_args)

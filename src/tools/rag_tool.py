@@ -26,7 +26,7 @@ class RAGTool(BaseTool):
         },
         "required": ["query"],
     }
-    
+
     def __init__(self, memory_manager=None) -> None:
         self._memory = memory_manager
 
@@ -39,13 +39,13 @@ class RAGTool(BaseTool):
         start = time.monotonic()
         query = kwargs.get("query", "").strip()
         dry_run = kwargs.get("dry_run", False)
-        
+
         if dry_run:
             return self._timed_result(start, True, output=f"[dry-run] Would search memory for: {query}")
-        
+
         if self._memory is None:
             return self._timed_result(start, False, error="Memory manager not available")
-        
+
         try:
             result = await self._memory.search(query)
             logger.info(f"RAG search: '{query}'")

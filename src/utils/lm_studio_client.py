@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
-from typing import Optional, AsyncIterator
+import os
+from typing import Optional
 
 import httpx
 from loguru import logger
-from tenacity import retry, stop_after_attempt, wait_exponential
 
 from src.utils.config import load_config
 
@@ -22,8 +21,13 @@ class LMStudioClient:
         self.timeout = timeout
         self._client: Optional[httpx.AsyncClient] = None
 
+    def _auth_headers(self) -> dict:
+        """Return Authorization header if LM_STUDIO_API_KEY is set."""
+        key = os.environ.get("LM_STUDIO_API_KEY", "")
+        return {"Authorization": f"Bearer {key}"} if key else {}
+
     async def __aenter__(self) -> "LMStudioClient":
-        self._client = httpx.AsyncClient(timeout=self.timeout)
+        self._client = httpx.AsyncClient(timeout=self.timeout, headers=self._auth_headers())
         return self
 
     async def __aexit__(self, *args) -> None:
@@ -33,7 +37,7 @@ class LMStudioClient:
     async def health_check(self) -> bool:
         """Check if LM Studio is running and accessible."""
         try:
-            async with httpx.AsyncClient(timeout=5.0) as c:
+            async with httpx.AsyncClient(timeout=5.0, headers=self._auth_headers()) as c:
                 r = await c.get(f"{self.endpoint}/models")
                 return r.status_code == 200
         except Exception:
@@ -54,10 +58,10 @@ class LMStudioClient:
         """
         cfg = load_config("models")
         model_name = model or cfg.get("local", {}).get("primary", {}).get("name", "")
-        
+
         if self._client is None:
             raise RuntimeError("LMStudioClient must be used as async context manager")
-        
+
         payload = {
             "model": model_name,
             "messages": messages,
@@ -65,7 +69,7 @@ class LMStudioClient:
             "max_tokens": max_tokens,
             "stream": False,
         }
-        
+
         try:
             response = await asyncio.wait_for(
                 self._client.post(f"{self.endpoint}/chat/completions", json=payload),
@@ -93,7 +97,7 @@ class LMStudioClient:
         working_messages = list(messages)
         last_error: Exception = RuntimeError("No response")
         raw = ""
-        
+
         for attempt in range(3):
             try:
                 raw = await self.complete(working_messages, model=model, temperature=temperature, max_tokens=max_tokens)
@@ -113,7 +117,7 @@ class LMStudioClient:
                     ]
             except (TimeoutError, RuntimeError):
                 raise
-        
+
         raise RuntimeError(f"local model returned unparseable response after 3 attempts: {last_error}")
 
 

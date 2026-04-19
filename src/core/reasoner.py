@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import json
 from typing import Optional
+
 from loguru import logger
-from src.core.models import Plan, PlanStep, UserRequest, MemoryEntry
+
+from src.core.models import Plan, PlanStep, UserRequest
 from src.utils.lm_studio_client import LMStudioClient
 from src.utils.tokens import truncate_to_budget
 
@@ -37,18 +38,18 @@ class Reasoner:
     ) -> Plan:
         """Generate an execution plan for the given request."""
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-        
+
         if memory_context:
             messages.append({
                 "role": "system",
                 "content": f"Relevant memory:\n{truncate_to_budget(memory_context, 2000)}",
             })
-        
+
         if conversation_history:
             messages.extend(conversation_history[-10:])  # Last 10 exchanges
-        
+
         messages.append({"role": "user", "content": request.text})
-        
+
         try:
             data = await self._client.complete_json(messages, temperature=0.3)
             steps = [
