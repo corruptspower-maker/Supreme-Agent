@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import shlex
+import sys
 import time
 from typing import Any
 
@@ -67,12 +68,19 @@ class ShellTool(BaseTool):
 
         try:
             timeout = self._get_timeout()
-            args = shlex.split(command)
-            proc = await asyncio.create_subprocess_exec(
-                *args,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
+            if sys.platform == "win32":
+                proc = await asyncio.create_subprocess_shell(
+                    command,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+            else:
+                args = shlex.split(command)
+                proc = await asyncio.create_subprocess_exec(
+                    *args,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
             output = stdout.decode(errors="replace").strip()
             err_output = stderr.decode(errors="replace").strip()
