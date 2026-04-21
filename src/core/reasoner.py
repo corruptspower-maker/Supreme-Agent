@@ -10,18 +10,40 @@ from src.core.models import Plan, PlanStep, UserRequest
 from src.utils.lm_studio_client import LMStudioClient
 from src.utils.tokens import truncate_to_budget
 
-SYSTEM_PROMPT = """You are an executive agent planner. Given a user request and context, 
+_SYSTEM_PROMPT_TEMPLATE = """You are an executive agent planner. Given a user request and context, 
 produce a JSON execution plan with numbered steps. Each step must specify which tool to use.
-Available tools: file_tool, web_search_tool, email_tool, python_tool, shell_tool, rag_tool.
+Available tools: {tool_list}
+
+For tasks that need to run continuously or watch for something over time, use monitor_tool with action='start'.
+For a one-time check of a window, use monitor_tool with action='once'.
 
 Respond ONLY with valid JSON in this exact format:
-{
+{{
   "reasoning": "why these steps",
   "confidence": 0.85,
   "steps": [
-    {"description": "step description", "tool_name": "tool_name", "tool_args": {...}, "depends_on": []}
+    {{"description": "step description", "tool_name": "tool_name", "tool_args": {{}}, "depends_on": []}}
   ]
-}"""
+}}"""
+
+_FALLBACK_TOOLS = (
+    "file_tool, web_search_tool, email_tool, python_tool, shell_tool, rag_tool, "
+    "screenshot_tool, window_tool, keyboard_tool, vision_tool, monitor_tool"
+)
+
+
+def _get_tool_list() -> str:
+    """Build tool list dynamically from the registry, with fallback."""
+    try:
+        from src.tools.registry import ToolRegistry
+        registry = ToolRegistry()
+        registry.autodiscover()
+        names = sorted(registry.list_tools().keys())
+        if names:
+            return ", ".join(names)
+    except Exception:
+        pass
+    return _FALLBACK_TOOLS
 
 
 class Reasoner:
@@ -37,7 +59,8 @@ class Reasoner:
         conversation_history: Optional[list[dict]] = None,
     ) -> Plan:
         """Generate an execution plan for the given request."""
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(tool_list=_get_tool_list())
+        messages = [{"role": "system", "content": system_prompt}]
 
         if memory_context:
             messages.append({
