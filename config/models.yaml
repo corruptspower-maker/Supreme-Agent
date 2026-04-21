@@ -1,6 +1,6 @@
 local:
   primary:
-    name: "huihui-qwen3.5-9b-abliterated-ties-i1"
+    name: "omnicoder-qwen3.5-9b-claude-4.6-opus-uncensored-v2"
     provider: "lmstudio"
     endpoint: "http://localhost:1234/v1"
     context_window: 32768
