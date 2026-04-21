@@ -81,11 +81,11 @@ def models_cfg():
 
 
 @pytest.fixture
-def mgr(escalation_cfg, models_cfg):
+def mgr(escalation_cfg):
     def _load(name):
         if name == "escalation":
             return escalation_cfg
-        return models_cfg
+        return {}
 
     with patch("src.escalation.manager.load_config", side_effect=_load):
         from src.escalation.manager import EscalationManager
@@ -124,7 +124,9 @@ class TestEscalationManagerCircuitBreaker:
 
 
 class TestEscalationManagerTier1:
-    async def test_tier1_skipped_without_token(self, mgr):
+    async def test_tier1_cline_not_found_returns_none(self, mgr):
+        from unittest.mock import AsyncMock, patch
+
         from src.core.models import (
             EscalationReason,
             EscalationRequest,
@@ -133,28 +135,29 @@ class TestEscalationManagerTier1:
             UserRequest,
         )
 
-        with patch.dict("os.environ", {}, clear=True):
-            import os
+        req = UserRequest(text="generate code")
+        task = Task(request=req)
 
-            os.environ.pop("GITHUB_TOKEN", None)
-            os.environ.pop("COPILOT_TOKEN", None)
+        esc_req = EscalationRequest(
+            reason=EscalationReason.REPEATED_FAILURE,
+            tier=EscalationTier.TIER1_VSCODE,
+            task_description="test",
+            steps_attempted=[],
+            errors_encountered=[],
+        )
 
-            req = UserRequest(text="generate code")
-            task = Task(request=req)
-
-            esc_req = EscalationRequest(
-                reason=EscalationReason.REPEATED_FAILURE,
-                tier=EscalationTier.TIER1_COPILOT,
-                task_description="test",
-                steps_attempted=[],
-                errors_encountered=[],
-            )
+        with patch(
+            "src.escalation.tier1_vscode.run",
+            side_effect=RuntimeError("Cline executable 'cline' not found"),
+        ):
             resp = await mgr._call_tier1(esc_req, task)
-            assert resp is None
+        assert resp is None
 
 
 class TestEscalationManagerTier2:
-    async def test_tier2_handles_missing_command(self, mgr):
+    async def test_tier2_no_api_key_returns_none(self, mgr):
+        from unittest.mock import AsyncMock, patch
+
         from src.core.models import (
             EscalationReason,
             EscalationRequest,
@@ -167,21 +170,26 @@ class TestEscalationManagerTier2:
         task = Task(request=req)
         esc_req = EscalationRequest(
             reason=EscalationReason.DEBUGGING,
-            tier=EscalationTier.TIER2_CLAUDE_CODE,
+            tier=EscalationTier.TIER2_CLAUDE,
             task_description="debug this",
             steps_attempted=[],
             errors_encountered=["NameError: name 'x' is not defined"],
         )
 
-        # Command not found should return None gracefully
-        mgr._tier2_command = "nonexistent_command_xyz"
-        result = await mgr._call_tier2(esc_req, task)
+        with patch(
+            "src.escalation.tier2_claude.run",
+            side_effect=RuntimeError("ANTHROPIC_API_KEY is not set"),
+        ):
+            result = await mgr._call_tier2(esc_req, task)
         assert result is None
 
-    async def test_tier2_parses_json_output(self, mgr):
+    async def test_tier2_returns_solution(self, mgr):
+        from unittest.mock import AsyncMock, patch
+
         from src.core.models import (
             EscalationReason,
             EscalationRequest,
+            EscalationResponse,
             EscalationTier,
             Task,
             UserRequest,
@@ -191,19 +199,20 @@ class TestEscalationManagerTier2:
         task = Task(request=req)
         esc_req = EscalationRequest(
             reason=EscalationReason.DEBUGGING,
-            tier=EscalationTier.TIER2_CLAUDE_CODE,
+            tier=EscalationTier.TIER2_CLAUDE,
             task_description="debug this",
             steps_attempted=[],
             errors_encountered=[],
         )
 
-        mock_proc = MagicMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(
-            return_value=(b'{"result": "Use a try-except block"}', b"")
+        mock_response = EscalationResponse(
+            request_id=esc_req.id,
+            solution='{"action":"retry","patch":"Use a try-except block","notes":"ok"}',
+            confidence=0.85,
+            tier=EscalationTier.TIER2_CLAUDE,
         )
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+        with patch("src.escalation.tier2_claude.run", new=AsyncMock(return_value=mock_response)):
             result = await mgr._call_tier2(esc_req, task)
 
         assert result is not None

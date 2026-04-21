@@ -50,9 +50,13 @@ class StepStatus(str, Enum):
 class EscalationTier(str, Enum):
     """Available escalation tiers."""
 
-    TIER1_COPILOT = "tier1_copilot"
-    TIER2_CLAUDE_CODE = "tier2_claude_code"
-    TIER3_CLINE = "tier3_cline"
+    TIER1_VSCODE = "tier1_vscode"    # Cline CLI via VS Code
+    TIER2_CLAUDE = "tier2_claude"    # Anthropic Claude API
+    TIER3_BROWSER = "tier3_browser"  # Playwright browser automation
+    # Backward-compatible aliases (same value → Python enum alias)
+    TIER1_COPILOT = "tier1_vscode"
+    TIER2_CLAUDE_CODE = "tier2_claude"
+    TIER3_CLINE = "tier3_browser"
 
 
 class EscalationReason(str, Enum):
@@ -69,6 +73,11 @@ class EscalationReason(str, Enum):
     TIMEOUT = "timeout"
     USER_REQUEST = "user_request"
     MISSING_MCP_TOOL = "missing_mcp_tool"
+    # CEA-compatible reasons
+    MAX_RETRIES = "max_retries"
+    HIGH_RISK = "high_risk"
+    PARSE_ERROR = "parse_error"
+    CIRCUIT_OPEN = "circuit_open"
 
 
 class SafetyMode(str, Enum):
@@ -133,24 +142,32 @@ class EscalationRequest(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     reason: EscalationReason
     tier: EscalationTier
-    task_description: str
-    steps_attempted: list[PlanStep]
-    errors_encountered: list[str]
+    # SA-style fields (optional for CEA compatibility)
+    task_description: str = ""
+    steps_attempted: list[PlanStep] = Field(default_factory=list)
+    errors_encountered: list[str] = Field(default_factory=list)
     current_code: Optional[str] = None
-    context: dict = Field(default_factory=dict)
+    metadata: dict = Field(default_factory=dict)  # formerly 'context: dict'
     timestamp: datetime = Field(default_factory=_utcnow)
+    # CEA-style fields (optional for SA compatibility)
+    task_id: str = ""
+    step_id: str = ""
+    context: str = ""  # string context for tier modules
 
 
 class EscalationResponse(BaseModel):
     """Response from an escalation tier."""
 
     request_id: str
-    tier_used: EscalationTier
-    tool_used: str
     solution: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    # SA-style fields (optional for CEA compatibility)
+    tier_used: Optional[EscalationTier] = None
+    tool_used: Optional[str] = None
     suggested_steps: list[str] = Field(default_factory=list)
     code_changes: Optional[str] = None
-    confidence: float = Field(ge=0.0, le=1.0)
+    # CEA-style field
+    tier: Optional[EscalationTier] = None
 
 
 class MemoryEntry(BaseModel):
@@ -192,6 +209,17 @@ class AuditEntry(BaseModel):
     output_summary: Optional[str] = None
     success: bool
     error: Optional[str] = None
+
+
+class EscalationLogEntry(BaseModel):
+    """Append-only escalation audit log entry (used by EscalationManager)."""
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    task_id: str
+    step_id: str = ""
+    event: str
+    details: str = ""
+    created_at: datetime = Field(default_factory=_utcnow)
 
 
 class ScreenshotEntry(BaseModel):

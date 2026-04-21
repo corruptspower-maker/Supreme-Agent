@@ -2,8 +2,19 @@
 
 import sys
 from pathlib import Path
+from typing import Any
 
 from loguru import logger
+
+
+def json_log(event: str, **payload: Any) -> None:
+    """Emit a structured log entry as a loguru INFO record.
+
+    Args:
+        event: Short event name used as the log message.
+        **payload: Additional key/value pairs bound to the log record.
+    """
+    logger.info(event, **payload)
 
 
 def setup_logging(log_level: str = "INFO", log_dir: str = "data/logs") -> None:

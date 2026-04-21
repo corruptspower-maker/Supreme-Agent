@@ -2,25 +2,36 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
 import time
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from loguru import logger
 
 from src.core.models import (
+    EscalationLogEntry,
     EscalationReason,
     EscalationRequest,
     EscalationResponse,
     EscalationTier,
     Task,
 )
+from src.utils import metrics
 from src.utils.config import load_config
+from src.utils.logging import json_log
+
+if TYPE_CHECKING:
+    from src.safety.audit_log import AuditLog
+
+# Ordered tier mapping for initiate() fallback chain
+_TIER_ORDER: dict[EscalationTier, int] = {
+    EscalationTier.TIER1_VSCODE: 1,
+    EscalationTier.TIER2_CLAUDE: 2,
+    EscalationTier.TIER3_BROWSER: 3,
+}
 
 
 class _CircuitBreaker:
-    """Simple per-tier circuit breaker.
+    """Simple per-tier circuit breaker (private, backward-compatible SA API).
 
     Opens after `failure_threshold` consecutive failures and stays open
     for `recovery_timeout_seconds` before allowing a retry.
@@ -56,20 +67,66 @@ class _CircuitBreaker:
             )
 
 
+class CircuitBreaker:
+    """Public multi-tier circuit breaker (CEA API).
+
+    States: CLOSED (normal) → OPEN (failing) → HALF-OPEN (testing).
+
+    Args:
+        threshold: Number of consecutive failures to open the circuit.
+        reset_seconds: Seconds to wait before moving from OPEN to HALF-OPEN.
+    """
+
+    def __init__(self, threshold: int = 5, reset_seconds: float = 60.0) -> None:
+        self._threshold = threshold
+        self._reset_seconds = reset_seconds
+        self._failures: dict[EscalationTier, int] = {}
+        self._opened_at: dict[EscalationTier, float] = {}
+
+    def is_open(self, tier: EscalationTier) -> bool:
+        """Return True if the circuit for *tier* is OPEN."""
+        failures = self._failures.get(tier, 0)
+        if failures < self._threshold:
+            return False
+        opened = self._opened_at.get(tier, 0.0)
+        if time.monotonic() - opened >= self._reset_seconds:
+            self._failures[tier] = 0
+            return False
+        return True
+
+    def record_success(self, tier: EscalationTier) -> None:
+        """Record a successful call, resetting the failure counter for *tier*."""
+        self._failures[tier] = 0
+        self._opened_at.pop(tier, None)
+
+    def record_failure(self, tier: EscalationTier) -> None:
+        """Record a failed call for *tier*."""
+        self._failures[tier] = self._failures.get(tier, 0) + 1
+        if self._failures[tier] >= self._threshold:
+            self._opened_at[tier] = time.monotonic()
+
+
 class EscalationManager:
     """Orchestrates escalation through up to three tiers.
 
-    Tier 1 — GitHub Copilot API (fast, code-focused)
-    Tier 2 — Claude Code CLI (subprocess, richer reasoning)
-    Tier 3 — Cline via VS Code (interactive, last resort)
+    Tier 1 — Cline CLI via VS Code subprocess
+    Tier 2 — Anthropic Claude API (httpx)
+    Tier 3 — Playwright browser automation
 
-    Each tier has an independent circuit breaker.  The fallback chain is
+    Each tier has an independent circuit breaker. The fallback chain is
     configurable via escalation.yaml.
+
+    Supports two calling styles:
+
+    - ``escalate(task, reason, errors)`` — original SA style
+    - ``initiate(request, audit)`` — CEA style with per-tier fallback
     """
 
     def __init__(self) -> None:
-        esc_cfg = load_config("escalation").get("escalation", {})
-        models_cfg = load_config("models").get("escalation", {})
+        try:
+            esc_cfg = load_config("escalation").get("escalation", {})
+        except (FileNotFoundError, ValueError):
+            esc_cfg = {}
 
         triggers = esc_cfg.get("triggers", {})
         self._max_retries: int = int(triggers.get("max_retries_before_escalate", 3))
@@ -88,24 +145,77 @@ class EscalationManager:
             "tier2": _CircuitBreaker(cb_threshold, cb_recovery),
             "tier3": _CircuitBreaker(cb_threshold, cb_recovery),
         }
+        self._cb = CircuitBreaker(threshold=cb_threshold, reset_seconds=cb_recovery)
 
-        tier1_cfg = models_cfg.get("tier1", {})
-        self._tier1_base_url: str = tier1_cfg.get("base_url", "https://api.githubcopilot.com")
-        self._tier1_model: str = tier1_cfg.get("model", "gpt-4o")
-        self._tier1_timeout: float = float(tier1_cfg.get("timeout_seconds", 30))
+    # ─── CEA-style API ────────────────────────────────────────────────────────
 
-        tier2_cfg = models_cfg.get("tier2", {})
-        self._tier2_command: str = tier2_cfg.get("command", "claude")
-        self._tier2_flags: list[str] = tier2_cfg.get(
-            "flags", ["--print", "--output-format", "json", "--max-turns", "10"]
-        )
-        self._tier2_timeout: float = float(tier2_cfg.get("timeout_seconds", 300))
+    async def initiate(
+        self,
+        request: EscalationRequest,
+        audit: "AuditLog",
+    ) -> Optional[EscalationResponse]:
+        """Attempt escalation starting at request.tier, falling back through higher tiers.
 
-        tier3_cfg = models_cfg.get("tier3", {})
-        self._tier3_command: str = tier3_cfg.get("command", "claude")
-        self._tier3_timeout: float = float(tier3_cfg.get("timeout_seconds", 600))
+        CEA-compatible entry point. Uses the shared CircuitBreaker (self._cb).
 
-    # ─── Main entry point ─────────────────────────────────────────────────────
+        Args:
+            request: The EscalationRequest with failure context.
+            audit: AuditLog instance to record escalation events.
+
+        Returns:
+            First successful EscalationResponse, or None if all tiers exhausted.
+        """
+        await metrics.inc("escalations_total")
+        start_order = _TIER_ORDER.get(request.tier, 1)
+
+        for tier, order in sorted(_TIER_ORDER.items(), key=lambda x: x[1]):
+            if order < start_order:
+                continue
+            if self._cb.is_open(tier):
+                json_log("circuit_open", tier=tier.name)
+                continue
+            try:
+                response = await self._invoke_tier(tier, request)
+                if response is not None:
+                    self._cb.record_success(tier)
+                    await audit.log(
+                        EscalationLogEntry(
+                            task_id=request.task_id,
+                            step_id=request.step_id,
+                            event="escalation_resolved",
+                            details=f"tier={tier.name} solution={response.solution[:100]}",
+                        )
+                    )
+                    json_log(
+                        "escalation_resolved",
+                        tier=tier.name,
+                        task_id=request.task_id,
+                    )
+                    return response
+            except Exception as exc:
+                self._cb.record_failure(tier)
+                json_log("escalation_tier_failed", tier=tier.name, error=str(exc))
+
+        return None
+
+    async def _invoke_tier(
+        self, tier: EscalationTier, request: EscalationRequest
+    ) -> Optional[EscalationResponse]:
+        """Delegate to the correct tier module (used by initiate())."""
+        if tier == EscalationTier.TIER1_VSCODE:
+            from src.escalation import tier1_vscode
+
+            return await tier1_vscode.run(request)
+        elif tier == EscalationTier.TIER2_CLAUDE:
+            from src.escalation import tier2_claude
+
+            return await tier2_claude.run(request)
+        else:
+            from src.escalation import tier3_browser
+
+            return await tier3_browser.run(request)
+
+    # ─── SA-style API ─────────────────────────────────────────────────────────
 
     async def escalate(
         self,
@@ -120,10 +230,11 @@ class EscalationManager:
         """
         request = EscalationRequest(
             reason=reason,
-            tier=EscalationTier.TIER1_COPILOT,
+            tier=EscalationTier.TIER1_VSCODE,
             task_description=task.request.text,
             steps_attempted=task.plan.steps if task.plan else [],
             errors_encountered=errors or [],
+            task_id=task.id,
         )
 
         for tier_key in self._fallback_chain:
@@ -161,185 +272,66 @@ class EscalationManager:
             return await self._call_tier3(request, task)
         return None
 
-    # ─── Tier 1: GitHub Copilot API ───────────────────────────────────────────
+    # ─── Tier implementations (delegate to tier modules) ─────────────────────
 
     async def _call_tier1(
         self, request: EscalationRequest, task: Task
     ) -> Optional[EscalationResponse]:
-        """Call the GitHub Copilot chat completion API."""
-        import os
-
-        token = os.environ.get("GITHUB_TOKEN") or os.environ.get("COPILOT_TOKEN")
-        if not token:
-            logger.warning("Tier1: GITHUB_TOKEN / COPILOT_TOKEN not set — skipping")
-            return None
-
+        """Invoke Tier-1 (Cline CLI) escalation."""
+        self._prepare_request(request, task)
         try:
-            import httpx
+            from src.escalation import tier1_vscode
 
-            prompt = self._build_escalation_prompt(request)
-            headers = {
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json",
-                "Copilot-Integration-Id": "executive-agent",
-            }
-            payload = {
-                "model": self._tier1_model,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are an expert software engineer helping to resolve a "
-                            "failed autonomous agent task. Provide a concise solution."
-                        ),
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                "temperature": 0.2,
-                "max_tokens": 2048,
-            }
-
-            async with httpx.AsyncClient(timeout=self._tier1_timeout) as client:
-                resp = await client.post(
-                    f"{self._tier1_base_url}/chat/completions",
-                    headers=headers,
-                    json=payload,
-                )
-                resp.raise_for_status()
-                data = resp.json()
-
-            solution = (
-                data.get("choices", [{}])[0]
-                .get("message", {})
-                .get("content", "No solution returned")
-            )
-            return EscalationResponse(
-                request_id=request.id,
-                tier_used=EscalationTier.TIER1_COPILOT,
-                tool_used="copilot_api",
-                solution=solution,
-                confidence=0.75,
-            )
-
+            response = await tier1_vscode.run(request)
+            self._breakers["tier1"].record_success()
+            return response
         except Exception as e:
-            logger.warning(f"Tier1 (Copilot API) failed: {e}")
+            logger.warning(f"Tier1 (Cline CLI) failed: {e}")
             self._breakers["tier1"].record_failure()
             return None
-
-    # ─── Tier 2: Claude Code CLI ──────────────────────────────────────────────
 
     async def _call_tier2(
         self, request: EscalationRequest, task: Task
     ) -> Optional[EscalationResponse]:
-        """Invoke the Claude Code CLI via subprocess."""
-        prompt = self._build_escalation_prompt(request)
-        cmd = [self._tier2_command] + self._tier2_flags + [prompt]
-
+        """Invoke Tier-2 (Anthropic Claude API) escalation."""
+        self._prepare_request(request, task)
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            try:
-                stdout, stderr = await asyncio.wait_for(
-                    proc.communicate(), timeout=self._tier2_timeout
-                )
-            except asyncio.TimeoutError:
-                proc.kill()
-                await proc.communicate()
-                logger.warning("Tier2 (Claude Code CLI) timed out")
-                self._breakers["tier2"].record_failure()
-                return None
+            from src.escalation import tier2_claude
 
-            if proc.returncode != 0:
-                logger.warning(
-                    f"Tier2 CLI exited {proc.returncode}: {stderr.decode()[:200]}"
-                )
-                self._breakers["tier2"].record_failure()
-                return None
-
-            raw = stdout.decode("utf-8", errors="replace")
-            # Try to parse JSON output
-            try:
-                data = json.loads(raw)
-                solution = data.get("result") or data.get("content") or raw
-            except json.JSONDecodeError:
-                solution = raw
-
-            return EscalationResponse(
-                request_id=request.id,
-                tier_used=EscalationTier.TIER2_CLAUDE_CODE,
-                tool_used="claude_code_cli",
-                solution=solution[:4096],
-                confidence=0.85,
-            )
-
-        except FileNotFoundError:
-            logger.warning(
-                f"Tier2: command '{self._tier2_command}' not found — is Claude Code CLI installed?"
-            )
-            self._breakers["tier2"].record_failure()
-            return None
+            response = await tier2_claude.run(request)
+            self._breakers["tier2"].record_success()
+            return response
         except Exception as e:
-            logger.warning(f"Tier2 (Claude Code CLI) error: {e}")
+            logger.warning(f"Tier2 (Anthropic API) failed: {e}")
             self._breakers["tier2"].record_failure()
             return None
-
-    # ─── Tier 3: Cline ────────────────────────────────────────────────────────
 
     async def _call_tier3(
         self, request: EscalationRequest, task: Task
     ) -> Optional[EscalationResponse]:
-        """Attempt to open VS Code with the Cline extension for manual help."""
-        import shutil
-
-        # Cline is invoked via 'claude' with special flags or vscode protocol
-        if not shutil.which(self._tier3_command):
-            logger.warning(
-                f"Tier3: command '{self._tier3_command}' not found — Cline unavailable"
-            )
-            self._breakers["tier3"].record_failure()
-            return None
-
-        prompt = self._build_escalation_prompt(request)
-        cmd = [self._tier3_command, "--print", prompt]
-
+        """Invoke Tier-3 (Playwright browser) escalation."""
+        self._prepare_request(request, task)
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            try:
-                stdout, _ = await asyncio.wait_for(
-                    proc.communicate(), timeout=self._tier3_timeout
-                )
-            except asyncio.TimeoutError:
-                proc.kill()
-                await proc.communicate()
-                logger.warning("Tier3 (Cline) timed out")
-                self._breakers["tier3"].record_failure()
-                return None
+            from src.escalation import tier3_browser
 
-            if proc.returncode != 0:
-                self._breakers["tier3"].record_failure()
-                return None
-
-            solution = stdout.decode("utf-8", errors="replace")
-            return EscalationResponse(
-                request_id=request.id,
-                tier_used=EscalationTier.TIER3_CLINE,
-                tool_used="cline_cli",
-                solution=solution[:4096],
-                confidence=0.9,
-            )
+            response = await tier3_browser.run(request)
+            self._breakers["tier3"].record_success()
+            return response
         except Exception as e:
-            logger.warning(f"Tier3 (Cline) error: {e}")
+            logger.warning(f"Tier3 (Playwright browser) failed: {e}")
             self._breakers["tier3"].record_failure()
             return None
 
     # ─── Helpers ──────────────────────────────────────────────────────────────
+
+    def _prepare_request(
+        self, request: EscalationRequest, task: Optional[Task] = None
+    ) -> None:
+        """Populate tier-module-required fields if not already set."""
+        if not request.context:
+            request.context = self._build_escalation_prompt(request)
+        if not request.task_id and task is not None:
+            request.task_id = task.id
 
     def _build_escalation_prompt(self, request: EscalationRequest) -> str:
         """Build a focused prompt for the escalation tier."""

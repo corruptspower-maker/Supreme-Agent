@@ -62,9 +62,13 @@ class TestStepStatus:
 
 class TestEscalationTier:
     def test_tier_values(self):
-        assert EscalationTier.TIER1_COPILOT == "tier1_copilot"
-        assert EscalationTier.TIER2_CLAUDE_CODE == "tier2_claude_code"
-        assert EscalationTier.TIER3_CLINE == "tier3_cline"
+        assert EscalationTier.TIER1_VSCODE == "tier1_vscode"
+        assert EscalationTier.TIER2_CLAUDE == "tier2_claude"
+        assert EscalationTier.TIER3_BROWSER == "tier3_browser"
+        # Backward-compat aliases resolve to same members
+        assert EscalationTier.TIER1_COPILOT is EscalationTier.TIER1_VSCODE
+        assert EscalationTier.TIER2_CLAUDE_CODE is EscalationTier.TIER2_CLAUDE
+        assert EscalationTier.TIER3_CLINE is EscalationTier.TIER3_BROWSER
 
 
 class TestEscalationReason:
@@ -72,7 +76,7 @@ class TestEscalationReason:
         reasons = {r.value for r in EscalationReason}
         assert "repeated_failure" in reasons
         assert "missing_mcp_tool" in reasons
-        assert len(reasons) == 11
+        assert len(reasons) == 15
 
 
 class TestSafetyMode:
@@ -273,7 +277,9 @@ class TestEscalationRequest:
             steps_attempted=[],
             errors_encountered=[],
         )
-        assert req.context == {}
+        # metadata dict and context string both default empty
+        assert req.metadata == {}
+        assert req.context == ""
 
 
 # ---------------------------------------------------------------------------
