@@ -14,7 +14,7 @@ from src.core.models import RiskLevel, ToolResult
 from src.tools.base import BaseTool
 
 _DEFAULT_URL = "http://localhost:1234"
-_DEFAULT_MODEL = ""  # LM Studio uses whichever model is currently loaded
+_DEFAULT_MODEL = "qwen2.5-vl-7b-instruct"  # Qwen 3.5 vision model in LM Studio
 _DEFAULT_TIMEOUT = 120.0
 
 
@@ -25,7 +25,7 @@ class VisionTool(BaseTool):
 
     Environment variables:
         LM_STUDIO_URL            Base URL for LM Studio (default: http://localhost:1234)
-        LM_STUDIO_VISION_MODEL   Model name (default: whatever is loaded in LM Studio)
+        LM_STUDIO_VISION_MODEL   Model name (default: qwen2.5-vl-7b-instruct)
         LM_STUDIO_TIMEOUT        Request timeout in seconds (default: 120)
     """
 
