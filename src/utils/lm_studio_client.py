@@ -77,7 +77,10 @@ class LMStudioClient:
             )
             response.raise_for_status()
             data = response.json()
-            return data["choices"][0]["message"]["content"]
+            msg = data["choices"][0]["message"]
+            # Reasoning models (QwQ/Qwen3) put the final answer in "content" and
+            # chain-of-thought in "reasoning_content". Use whichever is non-empty.
+            return msg.get("content") or msg.get("reasoning_content") or ""
         except asyncio.TimeoutError as e:
             raise TimeoutError(f"LM Studio timeout after {self.timeout}s") from e
         except httpx.HTTPError as e:
