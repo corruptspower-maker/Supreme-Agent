@@ -38,7 +38,7 @@ def _get_tool_list() -> str:
         from src.tools.registry import ToolRegistry
         registry = ToolRegistry()
         registry.autodiscover()
-        names = sorted(registry.list_tools().keys())
+        names = sorted(t.name for t in registry.list_tools() if t.name)
         if names:
             return ", ".join(names)
     except Exception:
@@ -57,6 +57,7 @@ class Reasoner:
         request: UserRequest,
         memory_context: str = "",
         conversation_history: Optional[list[dict]] = None,
+        last_feedback: Optional[dict] = None,
     ) -> Plan:
         """Generate an execution plan for the given request."""
         system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(tool_list=_get_tool_list())
@@ -66,6 +67,20 @@ class Reasoner:
             messages.append({
                 "role": "system",
                 "content": f"Relevant memory:\n{truncate_to_budget(memory_context, 2000)}",
+            })
+
+        if last_feedback:
+            decision = last_feedback.get("decision", "")
+            constraints = last_feedback.get("constraints", [])
+            strategy = last_feedback.get("strategy", "")
+            hint_parts = [f"Previous attempt outcome: decision={decision}"]
+            if strategy:
+                hint_parts.append(f"failed strategy: {strategy}")
+            if constraints:
+                hint_parts.append(f"avoid tools: {', '.join(constraints)}")
+            messages.append({
+                "role": "system",
+                "content": " — ".join(hint_parts) + ". Do NOT repeat the failed strategy.",
             })
 
         if conversation_history:

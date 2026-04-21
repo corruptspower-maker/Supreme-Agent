@@ -18,6 +18,7 @@ class WebSearchTool(BaseTool):
     name = "web_search_tool"
     description = "Search the web for information. Returns top results."
     risk_level = RiskLevel.SAFE
+    capabilities = ["web_search", "information_retrieval"]
     parameters_schema = {
         "type": "object",
         "properties": {

@@ -23,6 +23,7 @@ class PythonTool(BaseTool):
 
     name = "python_tool"
     description = "Execute Python code in a sandboxed environment with restricted imports."
+    capabilities = ["python_exec", "data_transform", "computation"]
     risk_level = RiskLevel.MODERATE
     parameters_schema = {
         "type": "object",

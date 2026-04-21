@@ -80,6 +80,17 @@ class EscalationReason(str, Enum):
     CIRCUIT_OPEN = "circuit_open"
 
 
+class ErrorType(str, Enum):
+    """Standardized error taxonomy for all tool outputs."""
+
+    SYNTAX = "SYNTAX"
+    NOT_FOUND = "NOT_FOUND"
+    PERMISSION = "PERMISSION"
+    TIMEOUT = "TIMEOUT"
+    TOOL_FAILURE = "TOOL_FAILURE"
+    UNKNOWN = "UNKNOWN"
+
+
 class SafetyMode(str, Enum):
     """Safety enforcement level."""
 
@@ -112,6 +123,8 @@ class PlanStep(BaseModel):
     error: Optional[str] = None
     retry_count: int = 0
     max_retries: int = 3
+    failed_strategies: list[str] = Field(default_factory=list)
+    """Strategies already tried and failed — planner must not repeat these."""
 
 
 class Plan(BaseModel):
@@ -132,8 +145,13 @@ class ToolResult(BaseModel):
     success: bool
     output: Optional[str] = None
     error: Optional[str] = None
+    error_type: Optional["ErrorType"] = None
     execution_time_ms: int = 0
     side_effects: list[str] = Field(default_factory=list)
+    # Raw subprocess fields (populated by shell/python tools)
+    stdout: Optional[str] = None
+    stderr: Optional[str] = None
+    exit_code: Optional[int] = None
 
 
 class EscalationRequest(BaseModel):
@@ -170,6 +188,44 @@ class EscalationResponse(BaseModel):
     tier: Optional[EscalationTier] = None
 
 
+class NormalizedResult(BaseModel):
+    """Structured representation of a raw tool execution result."""
+
+    success: bool
+    error_type: Optional["ErrorType"] = None
+    signal: str = ""
+    """First meaningful error signal extracted from raw output."""
+    raw: dict = Field(default_factory=dict)
+    """Original ToolResult fields preserved verbatim."""
+
+
+class InterpretedOutcome(BaseModel):
+    """Semantic meaning of a NormalizedResult relative to the task goal."""
+
+    status: str  # "succeeded" | "failed" | "partial"
+    reason: str
+    next_strategy_hint: str = ""
+    """Suggested corrective action for the planner."""
+
+
+class VerificationResult(BaseModel):
+    """Confirmation that reality matches intent after a step."""
+
+    verified: bool
+    mismatch: str = ""
+    """Human-readable description of what was expected vs. found."""
+
+
+class StepFeedback(BaseModel):
+    """Structured decision fed back to the planner after a step fails."""
+
+    decision: str  # "retry" | "use_alternative_tool" | "escalate" | "skip"
+    strategy: str = ""
+    """Description of the strategy that was attempted (for logging)."""
+    constraints: list[str] = Field(default_factory=list)
+    """Tool names or command patterns to avoid on the next attempt."""
+
+
 class MemoryEntry(BaseModel):
     """A single entry in the agent's memory system."""
 
@@ -194,6 +250,10 @@ class Task(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     error: Optional[str] = None
+    last_feedback: Optional[StepFeedback] = None
+    """Most recent feedback from the post-execution pipeline."""
+    last_normalized: Optional[NormalizedResult] = None
+    """Most recent normalized result — available to replanning."""
 
 
 class AuditEntry(BaseModel):
