@@ -232,6 +232,12 @@ def create_app(agent=None) -> FastAPI:
     """Create and return the FastAPI application, optionally bound to an agent."""
     app = FastAPI(title="Supreme Agent", version="0.1.0")
     app.state.agent = agent
+    try:
+        from src.api.agent import router as agent_router
+        app.include_router(agent_router, prefix="/api")
+    except Exception:
+        # API router is optional in environments without full deps/initialization
+        pass
 
     @app.get("/", response_class=HTMLResponse)
     async def dashboard() -> HTMLResponse:
