@@ -14,7 +14,7 @@ from src.core.models import RiskLevel, ToolResult
 from src.tools.base import BaseTool
 
 _DEFAULT_URL = "http://localhost:1234"
-_DEFAULT_MODEL = "qwen2.5-vl-7b-instruct"  # Qwen 3.5 vision model in LM Studio
+_DEFAULT_MODEL = "omnicoder-qwen3.5-9b-claude-4.6-opus-uncensored-v2"
 _DEFAULT_TIMEOUT = 120.0
 
 
@@ -100,7 +100,7 @@ class VisionTool(BaseTool):
                 }
             ],
             "temperature": 0.1,
-            "max_tokens": 512,
+            "max_tokens": 2048,  # reasoning model needs room to think before answering
         }
         if model:
             payload["model"] = model
@@ -122,7 +122,15 @@ class VisionTool(BaseTool):
             return self._timed_result(start, False, error=str(exc))
 
         try:
-            answer = data["choices"][0]["message"]["content"]
+            msg = data["choices"][0]["message"]
+            # Reasoning models (QwQ/Qwen3) put the final answer in "content" and
+            # their chain-of-thought in "reasoning_content".  Fall back to
+            # reasoning_content if the model ran out of tokens before finishing.
+            answer = msg.get("content") or msg.get("reasoning_content") or ""
+            if not answer:
+                return self._timed_result(
+                    start, False, error="Model returned empty response"
+                )
         except (KeyError, IndexError) as exc:
             return self._timed_result(start, False, error=f"Unexpected response shape: {exc}")
 

@@ -95,7 +95,7 @@ async def _ask_vision(b64_image: str, prompt: str, lm_url: str, model: str, time
             }
         ],
         "temperature": 0.0,
-        "max_tokens": 64,
+        "max_tokens": 2048,  # reasoning model needs room to think
     }
     if model:
         payload["model"] = model
@@ -103,7 +103,9 @@ async def _ask_vision(b64_image: str, prompt: str, lm_url: str, model: str, time
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.post(f"{lm_url}/v1/chat/completions", json=payload)
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+        msg = resp.json()["choices"][0]["message"]
+        # Reasoning models put answer in "content"; fall back to "reasoning_content"
+        return msg.get("content") or msg.get("reasoning_content") or ""
 
 
 def _detect_with_ocr(img_bytes: bytes, search_text: str) -> bool:
