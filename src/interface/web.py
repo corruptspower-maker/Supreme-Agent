@@ -235,9 +235,12 @@ def create_app(agent=None) -> FastAPI:
     try:
         from src.api.agent import router as agent_router
         app.include_router(agent_router, prefix="/api")
-    except Exception:
+    except ImportError as exc:
         # API router is optional in environments without full deps/initialization
-        pass
+        logger.warning(f"Optional API router could not be imported: {exc}")
+    except Exception:
+        logger.exception("Unexpected error while importing or including the API router")
+        raise
 
     @app.get("/", response_class=HTMLResponse)
     async def dashboard() -> HTMLResponse:
