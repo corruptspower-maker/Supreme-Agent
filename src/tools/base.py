@@ -16,6 +16,11 @@ class BaseTool(ABC):
     description: str = ""
     risk_level: RiskLevel = RiskLevel.SAFE
     parameters_schema: dict = {}
+    capabilities: list[str] = []
+    """Capability tags used by the planner to find alternative tools.
+
+    Examples: ["file_read", "file_write", "shell_exec", "web_search"]
+    """
 
     @abstractmethod
     async def execute(self, **kwargs: Any) -> ToolResult:

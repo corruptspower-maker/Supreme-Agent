@@ -15,7 +15,7 @@ you MUST call only one tool named run_agent and must not call any other tool dir
 Available tools: run_agent
 
 Respond ONLY with valid JSON in this exact format:
-{{
+{{Ha I'm a coder
   "reasoning": "why delegating to run_agent is appropriate",
   "confidence": 0.85,
   "steps": [
@@ -28,6 +28,16 @@ _FALLBACK_TOOLS = "run_agent"
 
 def _get_tool_list() -> str:
     """Build tool list dynamically from the registry, with fallback."""
+    try:
+        from src.tools.registry import ToolRegistry
+        registry = ToolRegistry()
+        registry.autodiscover()
+        names = sorted(t.name for t in registry.list_tools() if t.name)
+        if names:
+            return ", ".join(names)
+    except Exception:
+        pass
+main
     return _FALLBACK_TOOLS
 
 
@@ -42,6 +52,7 @@ class Reasoner:
         request: UserRequest,
         memory_context: str = "",
         conversation_history: Optional[list[dict]] = None,
+        last_feedback: Optional[dict] = None,
     ) -> Plan:
         """Generate an execution plan for the given request."""
         system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(tool_list=_get_tool_list())
@@ -51,6 +62,20 @@ class Reasoner:
             messages.append({
                 "role": "system",
                 "content": f"Relevant memory:\n{truncate_to_budget(memory_context, 2000)}",
+            })
+
+        if last_feedback:
+            decision = last_feedback.get("decision", "")
+            constraints = last_feedback.get("constraints", [])
+            strategy = last_feedback.get("strategy", "")
+            hint_parts = [f"Previous attempt outcome: decision={decision}"]
+            if strategy:
+                hint_parts.append(f"failed strategy: {strategy}")
+            if constraints:
+                hint_parts.append(f"avoid tools: {', '.join(constraints)}")
+            messages.append({
+                "role": "system",
+                "content": " — ".join(hint_parts) + ". Do NOT repeat the failed strategy.",
             })
 
         if conversation_history:

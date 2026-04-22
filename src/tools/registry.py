@@ -48,6 +48,14 @@ class ToolRegistry:
         """Return usage statistics per tool."""
         return dict(self._stats)
 
+    def get_capable_tools(self, capability: str) -> list[BaseTool]:
+        """Return all tools that have the given capability tag."""
+        return [t for t in self._tools.values() if capability in (t.capabilities or [])]
+
+    def list_tool_schemas(self) -> list[dict]:
+        """Return MCP-compatible schemas for all registered tools (for LLM prompt injection)."""
+        return [t.to_mcp_schema() for t in self._tools.values()]
+
     def autodiscover(self, tools_dir: Optional[Path] = None) -> int:
         """Auto-discover and register tools from the tools directory."""
         if tools_dir is None:

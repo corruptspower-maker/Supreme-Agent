@@ -18,6 +18,7 @@ class FileTool(BaseTool):
     name = "file_tool"
     description = "Read, write, list, search files. Safe for read operations."
     risk_level = RiskLevel.SAFE
+    capabilities = ["file_read", "file_write", "file_list", "file_search", "file_delete"]
     parameters_schema = {
         "type": "object",
         "properties": {

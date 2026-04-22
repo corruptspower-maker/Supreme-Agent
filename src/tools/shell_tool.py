@@ -24,6 +24,7 @@ class ShellTool(BaseTool):
     name = "shell_tool"
     description = "Execute whitelisted shell commands. Requires confirmation."
     risk_level = RiskLevel.DANGEROUS
+    capabilities = ["shell_exec", "file_read", "file_list"]
     parameters_schema = {
         "type": "object",
         "properties": {

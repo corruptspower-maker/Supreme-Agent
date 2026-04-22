@@ -9,7 +9,7 @@ from pathlib import Path
 import aiosqlite
 from loguru import logger
 
-from src.core.models import AuditEntry, Plan, SafetyMode
+from src.core.models import AuditEntry, Plan, PlanStep, SafetyMode, StepFeedback
 from src.utils.config import load_config
 
 
@@ -104,6 +104,19 @@ class SafetyManager:
                 return False, f"Rate limit exceeded for '{tool}': {msg}"
 
         return True, "OK"
+
+    def annotate_blocked(self, step: PlanStep) -> StepFeedback:
+        """Produce a StepFeedback when safety blocks a step.
+
+        The feedback engine can use this to route around the blocked tool.
+        """
+        tool = step.tool_name or ""
+        reason = "forbidden" if tool in self._forbidden_actions else "requires_confirmation"
+        return StepFeedback(
+            decision="escalate",
+            strategy=f"safety_block:{reason}",
+            constraints=[tool],
+        )
 
     # ─── Rate limiting ────────────────────────────────────────────────────────
 

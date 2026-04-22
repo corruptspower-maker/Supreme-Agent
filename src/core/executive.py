@@ -202,12 +202,15 @@ class ExecutiveAgent:
                     return
 
             if self.executor and task.plan:
-                task = await self.executor.execute_plan(task)
+                task = await self.executor.execute_plan(
+                    task, registry=getattr(self, "_registry", None)
+                )
             else:
                 task.status = TaskStatus.COMPLETED
 
             if self.memory:
                 await self.memory.store_task_result(task)
+                await self._store_step_strategies(task)
 
         except Exception as e:
             logger.error(f"Task {task.id} failed: {e}")
@@ -306,6 +309,39 @@ class ExecutiveAgent:
             await self._lm_client.__aexit__(None, None, None)
 
         logger.info("Agent shutdown complete")
+
+    async def _store_step_strategies(self, task: Task) -> None:
+        """Store failed/successful step strategies in memory for future planning."""
+        if not self.memory or not task.plan:
+            return
+        for step in task.plan.steps:
+            from src.core.models import MemoryEntry, StepStatus
+            if step.status == StepStatus.FAILED and step.failed_strategies:
+                for strategy in step.failed_strategies:
+                    entry = MemoryEntry(
+                        category="failed_strategy",
+                        content=f"Failed strategy for '{step.description}': {strategy}",
+                        metadata={
+                            "task_id": task.id,
+                            "tool_name": step.tool_name or "",
+                            "strategy": strategy,
+                            "error": step.error or "",
+                        },
+                        importance=0.6,
+                    )
+                    await self.memory.store_episodic(entry)
+            elif step.status == StepStatus.SUCCEEDED and step.tool_name:
+                entry = MemoryEntry(
+                    category="successful_pattern",
+                    content=f"Successful pattern for '{step.description}': tool={step.tool_name}",
+                    metadata={
+                        "task_id": task.id,
+                        "tool_name": step.tool_name,
+                        "description": step.description,
+                    },
+                    importance=0.7,
+                )
+                await self.memory.store_episodic(entry)
 
     def get_status(self) -> dict:
         """Return current agent status."""
