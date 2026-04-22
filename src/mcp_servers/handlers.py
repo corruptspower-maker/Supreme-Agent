@@ -6,29 +6,37 @@ from loguru import logger
 
 
 async def handle_list_tools(agent) -> dict:
-    """Return list of available tools."""
-    tools = []
-    if agent and hasattr(agent, "_registry"):
-        for name, tool in agent._registry.items():
-            tools.append(tool.to_mcp_schema())
-    return {"tools": tools}
+    """Return only the single externally visible MCP tool."""
+    tool_schema = {
+        "name": "run_agent",
+        "description": "Execute a task using Supreme Agent",
+        "parameters": {
+            "type": "object",
+            "properties": {"goal": {"type": "string"}},
+            "required": ["goal"],
+        },
+    }
+    return {"tools": [tool_schema]}
 
 
 async def handle_execute_tool(agent, tool_name: str, args: dict) -> dict:
-    """Execute a tool on behalf of an MCP client."""
+    """Execute only run_agent for MCP clients (all other tools are internal)."""
     if agent is None:
         return {"success": False, "error": "Agent not available"}
+    if tool_name != "run_agent":
+        return {
+            "success": False,
+            "error_type": "UNKNOWN_TOOL",
+            "stderr": f"{tool_name} not registered",
+            "error": f"{tool_name} not registered",
+        }
 
     try:
-        from src.core.models import PlanStep
-        step = PlanStep(description=f"MCP call: {tool_name}", tool_name=tool_name, tool_args=args)
-
-        if hasattr(agent, "_executor") and agent._executor:
-            result = await agent._executor._router.route(step)
-        else:
-            return {"success": False, "error": "Executor not initialized"}
-
-        return {"success": result.success, "output": result.output, "error": result.error}
+        goal = str(args.get("goal", "")).strip()
+        if not goal:
+            return {"success": False, "error": "goal is required"}
+        result = await agent.run_async(goal, source="mcp")
+        return {"success": result.get("status") == "completed", "output": result}
     except Exception as e:
         logger.error(f"MCP tool execution error: {e}")
         return {"success": False, "error": str(e)}

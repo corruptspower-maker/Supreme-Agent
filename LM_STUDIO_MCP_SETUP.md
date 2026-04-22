@@ -1,17 +1,12 @@
 # LM Studio MCP Setup Guide
 
-This guide explains how to connect **LM Studio** to **Supreme-Agent's MCP server** to enable tool-augmented inference with a full-featured MCP implementation.
+This guide explains how to connect **LM Studio** to **Supreme-Agent's MCP harness** so the model uses a single tool entrypoint: `run_agent`.
 
-## What's New in v2.0
+## Harness Mode (Single Tool)
 
-The MCP server now includes the full MCP protocol implementation:
+In harness mode, LM Studio sees only one MCP tool:
 
-| Feature | Description |
-|---------|-------------|
-| **Tools** | 18 tools for file, shell, code, web, and knowledge operations |
-| **Resources** | 6 URI-based resources for config, tools, and server info |
-| **Prompts** | 7 reusable prompt templates for common tasks |
-| **Sampling** | Server-side LLM calls via LM Studio API |
+- `run_agent(goal: string)` → sends your request into Supreme-Agent's full orchestration loop (planning, safety checks, execution, retries, verification).
 
 ## Setup Instructions
 
@@ -52,85 +47,21 @@ In LM Studio's Developer → MCP section:
 
 ### Step 5: Verify Connection
 
-You should see **18 tools** and **6 resources** available after connecting.
+You should see exactly **1 tool**:
+
+- `run_agent`
 
 ---
 
-## Available Tools
+## How it Works
 
-### File Operations (5)
+LM Studio model (9B) → MCP `run_agent` → Supreme-Agent internals:
 
-| Tool | Description | Risk |
-|------|-------------|------|
-| `file_read` | Read file contents with line range support | Safe |
-| `file_write` | Write content to files (auto-creates dirs) | Medium |
-| `file_list` | List directory contents with filters | Safe |
-| `file_search` | Search for files by glob pattern | Safe |
-| `file_delete` | Delete files (dry-run default) | High |
-
-### Shell Operations (2)
-
-| Tool | Description | Risk |
-|------|-------------|------|
-| `shell_execute` | Execute whitelisted commands | Medium |
-| `shell_list_commands` | List allowed commands | Safe |
-
-### Code Execution (2)
-
-| Tool | Description | Risk |
-|------|-------------|------|
-| `python_execute` | Execute Python in sandbox | Medium |
-| `python_list_builtins` | List allowed imports | Safe |
-
-### Web & Knowledge (3)
-
-| Tool | Description | Risk |
-|------|-------------|------|
-| `web_search` | Search the web | Safe |
-| `knowledge_search` | Semantic search in knowledge base | Safe |
-| `knowledge_add` | Add documents to knowledge base | Safe |
-
-### System (6)
-
-| Tool | Description | Risk |
-|------|-------------|------|
-| `email_send` | Send emails via SMTP | High |
-| `get_working_directory` | Get current directory | Safe |
-| `list_available_tools` | List all tools | Safe |
-| `get_server_status` | Server health and stats | Safe |
-| `server_llm_complete` | Server-side LLM completion | Safe |
-| `server_llm_summarize` | Summarize text via LLM | Safe |
-
----
-
-## MCP Resources
-
-Access server information via URIs:
-
-| URI | Description |
-|-----|-------------|
-| `file://readme` | README content |
-| `file://config` | Server configuration |
-| `file://tools` | All tool schemas |
-| `file://allowed-shells` | Whitelisted shell commands |
-| `file://sandbox-allowed-imports` | Allowed Python imports |
-| `server://info` | Server capabilities |
-
----
-
-## MCP Prompts
-
-Pre-built prompt templates for common tasks:
-
-| Prompt | Use Case |
-|--------|----------|
-| `analyze_codebase` | Analyze project structure |
-| `debug_error` | Debug error messages |
-| `review_code` | Code review |
-| `search_and_replace` | Find and replace patterns |
-| `write_tests` | Generate test files |
-| `research_topic` | Research information |
-| `refactor_code` | Refactor code |
+- Reasoner + Planner
+- SafetyManager
+- Executor + ToolRouter
+- Internal tools (filesystem/search/etc.) used by the agent, not directly by LM Studio
+- Memory + audit trail
 
 ---
 
@@ -138,26 +69,22 @@ Pre-built prompt templates for common tasks:
 
 ```
 ┌─────────────────┐     MCP (stdio)      ┌─────────────────────────┐
-│   LM Studio     │◄────────────────────►│  Supreme-Agent MCP      │
-│   (Model)       │                      │  (lmstudio_exposer.py) │
+│   LM Studio     │◄────────────────────►│ run_agent MCP tool      │
+│   (Model)       │                      │ (lmstudio_exposer.py)   │
 └─────────────────┘                      └───────────┬─────────────┘
-                                                      │
-                                    ┌─────────────────┼─────────────────┐
-                                    │                 │                 │
-                              ┌─────▼─────┐    ┌──────▼──────┐   ┌─────▼─────┐
-                              │ File Tool │    │ Shell Tool  │   │  RAG Tool │
-                              └───────────┘    └─────────────┘   └───────────┘
-                                    │                 │                 │
-                              ┌─────▼─────┐    ┌──────▼──────┐   ┌─────▼─────┐
-                              │  Python   │    │ Web Search  │   │   Email   │
-                              └───────────┘    └─────────────┘   └───────────┘
+                                                     │
+                                                     ▼
+                                           ┌───────────────────┐
+                                           │ ExecutiveAgent    │
+                                           │ (full internals)  │
+                                           └───────────────────┘
 ```
 
 ---
 
 ## Troubleshooting
 
-### Tools not appearing
+### `run_agent` not appearing
 1. Check the server started without errors
 2. Verify the working directory is correct
 3. Try restarting LM Studio

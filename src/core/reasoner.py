@@ -10,26 +10,20 @@ from src.core.models import Plan, PlanStep, UserRequest
 from src.utils.lm_studio_client import LMStudioClient
 from src.utils.tokens import truncate_to_budget
 
-_SYSTEM_PROMPT_TEMPLATE = """You are an executive agent planner. Given a user request and context, 
-produce a JSON execution plan with numbered steps. Each step must specify which tool to use.
-Available tools: {tool_list}
-
-For tasks that need to run continuously or watch for something over time, use monitor_tool with action='start'.
-For a one-time check of a window, use monitor_tool with action='once'.
+_SYSTEM_PROMPT_TEMPLATE = """You are an executive agent planner. Given a user request and context,
+you MUST call only one tool named run_agent and must not call any other tool directly.
+Available tools: run_agent
 
 Respond ONLY with valid JSON in this exact format:
-{{
-  "reasoning": "why these steps",
+{{Ha I'm a coder
+  "reasoning": "why delegating to run_agent is appropriate",
   "confidence": 0.85,
   "steps": [
-    {{"description": "step description", "tool_name": "tool_name", "tool_args": {{}}, "depends_on": []}}
+    {{"description": "delegate to supreme agent", "tool_name": "run_agent", "tool_args": {{"goal": "<user goal>"}}, "depends_on": []}}
   ]
 }}"""
 
-_FALLBACK_TOOLS = (
-    "file_tool, web_search_tool, email_tool, python_tool, shell_tool, rag_tool, "
-    "screenshot_tool, window_tool, keyboard_tool, vision_tool, monitor_tool"
-)
+_FALLBACK_TOOLS = "run_agent"
 
 
 def _get_tool_list() -> str:
@@ -43,6 +37,7 @@ def _get_tool_list() -> str:
             return ", ".join(names)
     except Exception:
         pass
+main
     return _FALLBACK_TOOLS
 
 

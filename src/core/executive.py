@@ -106,6 +106,9 @@ class ExecutiveAgent:
         # Tools
         registry = ToolRegistry()
         registry.autodiscover()
+        run_agent_tool = registry.get("run_agent")
+        if run_agent_tool and hasattr(run_agent_tool, "_agent"):
+            run_agent_tool._agent = self
         self._registry = registry
 
         # LM Studio client (shared; must be closed on shutdown)
@@ -163,6 +166,18 @@ class ExecutiveAgent:
         self._active_tasks[task.id] = task
         asyncio.create_task(self._process_task(task))
         return task
+
+    async def run_async(self, goal: str, source: str = "api") -> dict:
+        """Run a goal and wait for completion, returning a compact result."""
+        task = await self.submit_request(goal, source=source)
+        while task.status in {TaskStatus.PENDING, TaskStatus.PLANNING, TaskStatus.EXECUTING}:
+            await asyncio.sleep(0.1)
+        return {
+            "task_id": task.id,
+            "status": task.status.value,
+            "error": task.error,
+            "results": [r.model_dump(mode="json") for r in task.results],
+        }
 
     async def _process_task(self, task: Task) -> None:
         """Process a single task through plan → execute → memory → report."""
